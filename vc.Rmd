@@ -1,0 +1,331 @@
+---
+title: "Clase 2: Validacion de Clusters"
+author: "Hernan Marasco"
+date: "September 6, 2016"
+output: html_document
+---
+
+### Porque es importante validar los datos y sus clusters? <br />
+
+1) Para ver si esta todo bien, si se condicen.<br />
+
+2) Plantearnos si armar clusters si tiene sentido. Siempre que usemos metodos de **particion**  se van a generar nuevos clusters aunque esto no implica necesariamente que existan patrones. Muchas veces de esta forma se cae en agrupaciones sin un sentido.
+
+3) Otro problema es que cuando inicialmente no conocemos el K, lo terminamos planteando mal, por lo que terminan saltando errores. Es un caso similar al anterior, ya que los dos desembocan en lo mismo.
+
+4) hay alguna tendencia al agrupamiento en los datos? Muchas veces tenemos variables que no tienen tendencia a ser agrupadas.
+
+### Que tipos de validaciones existen? <br />
+
+**-EXTERNA:** <br /> Si existe algún información sobre la existencia de clases dentro del conjunto de
+datos y esa información sobre clases no se utilizó para el clustering, se puede
+realizar la **validación externa** de los clusters. Este es, calcular alguna métrica que
+revele la concordancia entre las clases conocidas y los clusters obtenidos.
+
+
+**-INTERNA:** <br /> Como metodo complementario, o cuando no tengo información que me permita hacer una validacion se utilizan metodos de validacion **interna**. Este tipo de validación consiste en
+determinar si los clusters encontrados tienen suficiente separación entre si, y
+cohesión dentro de cada uno de ellos.
+
+<br />
+<br />
+
+####Cohesion y Separacion:
+
+La **cohesion** mide proximidades entre miembros del cluster con respecto al prototipo. Se busca siempre minimizar la cohesion, de manera que los elementos se encuentren lo mas cercanos posibles.
+
+La **separacion** es la proximidad entre miembros de distintos clusters o entre prototipos de grupos y el prototipo general. Se busca maximizar las distancias de separacion.
+<br/><br/>
+<img src="img/cohesion_separation.jpg" alt="Drawing" style="width: 550px;"/><br />
+<p align="center">*Cohesion y separacion*</p>
+<br/><br/>
+-La cohesion puede medirse con el **SSE** (Sum Squares Error):**
+<br/><br/>
+<img src="img/sse.png" alt="Drawing" style="width: 150px;"/><br />
+
+Por otro lado existe la medida **TSE**, que es la suma del **SSE** y el **SSB (Sum Squares Between)**.
+<br/><br/>
+
+- A continuacion se preparan 3 datasets con distinto nivel de ruido (nada,bajo, y alto):
+<br/>
+```{r, echo=FALSE}
+library(RANN)
+
+a <- c(rep(2,40), rep(6,40), rep(12,40), rep(19,40), rep(26,40))
+b <- c(rep(3,40), rep(6,40), rep(14,120))
+c <- c(rep(12,80), rep(18,40), rep(2,40), rep(30,40))
+a.r1 <- a + rnorm(200, 0, 0.5)
+b.r1 <- b + rnorm(200, 0, 0.5)
+c.r1 <- c + rnorm(200, 0, 0.5)
+a.r2 <- a + rnorm(200, 0, 3)
+b.r2 <- b + rnorm(200, 0, 3)
+c.r2 <- c + rnorm(200, 0, 4)
+dat.clase <- c(rep("a",40), rep("b",40), rep("c",40), rep("d", 40),rep("e",40))
+
+# aleatorizamos el orden de los registros (para hacerlos parecer más "reales", no es necesario)
+randord <- sample(1:200, 200)
+# dat es la matriz original:
+dat <- as.matrix(cbind(a,b,c))
+row.names(dat) <- paste0("obj", 1:200)
+dat <- dat[randord,]
+
+# dat.r1 es la matriz con ruido:
+dat.r1 <- as.matrix(cbind(a.r1, b.r1, c.r1))
+row.names(dat.r1) <- paste0("obj", 1:200)
+dat.r1 <- dat.r1[randord,]
+
+# dat.r2 es la matriz con más ruido:
+dat.r2 <- as.matrix(cbind(a.r2, b.r2, c.r2))
+row.names(dat.r2) <- paste0("obj", 1:200)
+dat.r2 <- dat.r2[randord,]
+
+# ordenamos las etiquetas de clase
+dat.clase <- dat.clase[randord]
+
+# Escalamos todos los datos entre 0 y 1 para simplificar los pasos que siguen
+esc01 <- function(x) { (x - min(x)) / (max(x) - min(x))}
+dat.nrm <- apply(dat, 2, esc01)
+dat.r1.nrm <- apply(dat.r1, 2, esc01)
+dat.r2.nrm <- apply(dat.r2, 2, esc01)
+
+dat.nrm.dist <- dist(dat.nrm)
+dat.clus <- hclust(dat.nrm.dist)
+dat.r1.dist <- dist(dat.r1.nrm)
+dat.r1.clus <- hclust(dat.r1.dist)
+dat.r2.dist <- dist(dat.r2.nrm)
+dat.r2.clus <- hclust(dat.r2.dist)
+
+par(mfrow=c(1,3))
+plot( as.dendrogram( dat.clus ), leaflab="none", main="dat.nrm")
+plot( as.dendrogram( dat.r1.clus ), leaflab="none",
+      main="dat.r1.nrm")
+plot( as.dendrogram( dat.r2.clus ), leaflab="none",
+      main="dat.r2.nrm")
+par(mfrow=c(1,1))
+```
+<p align="center">*Dendogramas de los datasets.*</p><br/>
+*Bibliografia sug: data clustering. Algorithms and Applications” editado por Vipin Kumar.*
+
+
+###Estadistico de Hopkins:
+
+Se toman n puntos al azar de nuestro dataset y se buscan los vecinos mas cercanos (W).
+Por otro lado se generan puntos al azar (en el mismo espacio muestral) y tambien se calcula la distancia a los vecinos mas cercanos de cada uno de ellos (U).<br/>
+Para comparar se lo hace mediante un cociente, se espera que la sumatoria de los Wi siempre sea menor a Ui. <br/>
+<p align="center"><img src="img/hopkins.png" alt="Drawing" style="width: 250px;"/></p><br/>
+<br/>
+
+Calculamos la tendencia al clustering de los datos sin ruido del primer dataset:
+```{r, echo=FALSE}
+cant.muestras <- 20
+rnd.pts <- cbind(runif(cant.muestras, 0, 1),
+runif(cant.muestras, 0, 1),
+runif(cant.muestras, 0, 1))
+
+smp <- sample(nrow(dat.nrm), 20)
+smp.dat <- dat.nrm[smp,]
+smp.r1 <- dat.r1.nrm[smp,]
+smp.r2 <- dat.r2.nrm[smp,]
+
+# calculo de las distancias al vecino más cercano para los datos reales
+smp.pts.dist <- nn2(as.data.frame(dat.nrm), as.data.frame(smp.dat),
+k=2)$nn.dist[,2]
+# calculo de las distancias al vecino más cercano para datos al azar
+rnd.pts.dist <- nn2(as.data.frame(dat.nrm), as.data.frame(rnd.pts),
+k=1)$nn.dists
+# calculo del estadistico
+sum(smp.pts.dist) / (sum(smp.pts.dist) + sum(rnd.pts.dist))
+```
+
+Ahora los datos con ruido intermedio:
+```{r, echo=FALSE}
+smp.pts.dist <- nn2(as.data.frame(dat.r1.nrm), as.data.frame(smp.r1),
+k=2)$nn.dist[,2]
+rnd.pts.dist <- nn2(as.data.frame(dat.r1.nrm), as.data.frame(rnd.pts),
+k=1)$nn.dists
+sum(smp.pts.dist) / (sum(smp.pts.dist) + sum(rnd.pts.dist))
+```
+Ahora para los datos con ruido alto:
+```{r, echo=FALSE}
+smp.pts.dist <- nn2(as.data.frame(dat.r2.nrm), as.data.frame(smp.r2),
+k=2)$nn.dist[,2]
+rnd.pts.dist <- nn2(as.data.frame(dat.r2.nrm), as.data.frame(rnd.pts),
+k=1)$nn.dists
+sum(smp.pts.dist) / (sum(smp.pts.dist) + sum(rnd.pts.dist))
+```
+<br/>
+Cuanto mayor es la medida menor es la tendencia al clustering (se busca minimizar el estadistico).
+En el primer caso la tendencia al clustering es cero, indicando que es la más mayor
+posible. Esto sucede porque para cada clase hay varios elementos idénticos, por lo
+que la distancia al vecino más cercano va a ser cero para cualquier punto.
+<br/>
+
+**Ideas:**
+
+- Se pueden calcular 100 valores de H distintos, armar un histograma y plantear un intervalo de confianza de eso para ver que tan confiables son esas bajas distancias. H es un estadístico de distancia. <br/>
+
+-  Con datos multidimensionales hay que tener en cuenta que se puede decir que calcule el estadístico H y me dio mal. Bajando la cantidad de variables puede ser que esto mejore. <br/>
+*A medida que aumentamos la dimensionalidad los puntos **tienden a estar mas alejados entre si**.* <br/>
+
+
+### Validación externa de un cluster
+
+La discusión que sigue está enfocada sobre en todo la validación de clusters
+obtenidos por el método de k-medias.
+En la validación externa de un agrupamiento se utiliza información que no está
+presente en los datos con los que se hace el agrupamiento.<br/>
+
+```{r, echo=FALSE}
+dat.kmeans <- kmeans(dat.nrm, centers=5)
+head(dat.kmeans$cluster)
+dat.conf <- table(dat.kmeans$cluster, dat.clase, dnn = c("cluster",
+"clase"))
+dat.conf
+```
+*Utilizando k=5, con el dataset sin ruido* <br/>
+
+```{r, echo=FALSE}
+dat.r2.kmeans <- kmeans(dat.r2.nrm, centers=5)
+dat.r2.conf <- table(dat.r2.kmeans$cluster, dat.clase, dnn =c("cluster", "clase"))
+dat.r2.conf
+```
+*Utilizando k=5 con un dataset alterado con ruido II* <br/>
+```{r, echo=FALSE}
+dat.r2.kmeans.mal.1 <- kmeans(dat.r2.nrm, centers=2)
+dat.r2.mal.1.conf <- table(dat.r2.kmeans.mal.1$cluster, dat.clase, dnn
+= c("cluster", "clase"))
+dat.r2.mal.1.conf
+```
+*Utilizando k=2, con un dataset alterado con ruido I* <br/>
+```{r, echo=FALSE}
+dat.r2.kmeans.mal.2 <- kmeans(dat.r2.nrm, centers=10)
+dat.r2.mal.2.conf <- table(dat.r2.kmeans.mal.2$cluster, dat.clase, dnn
+= c("cluster", "clase"))
+dat.r2.mal.2.conf
+```
+*Utilizando k=10 con un dataset alterado con ruido II* <br/>
+<br/>
+
+### Medida de Van Dongen
+
+Para la validacion externa una medida muy utilizada es la de Van Dongen:
+<br/><br/>
+<p align="center"><img src="img/vd.png" alt="Drawing" style="width: 400px;"/></p>
+<br/><br/>
+```{r}
+#Funcion de Van Dongen en R
+vdn <- function(matconf){
+ n2 <- 2 * sum(matconf)
+ sum.i <- sum(apply(matconf,1,max))
+ sum.j <- sum(apply(matconf,2,max))
+ max.i <- max(rowSums(matconf))
+ max.j <- max(colSums(matconf))
+ vd.n <- (n2 - sum.i - sum.j) / (n2-max.i-max.j)
+ return(vd.n)
+}
+```
+
+-Resultados
+```{r}
+vdn(dat.r2.conf)
+vdn(dat.r2.mal.1.conf)
+vdn(dat.r2.mal.2.conf)
+```
+
+Es importante hacer este tipo de evaluaciones porque el método de k-medias tiende
+a formar grupos de tamaño uniforme, aun cuando las clases sean claramente no
+balanceadas. Esto se llama el "efecto uniforme". Una forma rápida de evaluarlo es
+calcular el coeficiente de variación (CV = desvío estándar/media) de la distribución
+del tamaño de las clases. Por ejemplo supongamos dos datasets con 6 clases. En el
+primer dataset el tamaño de cada clase es bastante uniforme y el segundo es
+sesgado:<br/><br/>
+
+```{r}
+ds1.n.clases <- c(55, 58, 51, 59, 49, 50)
+ds2.n.clases <- c(5, 17, 62, 30, 128, 80)
+cv.ds1.n.clases <- sd(ds1.n.clases) / mean(ds1.n.clases)
+cv.ds1.n.clases
+## [1] 0.07963886
+cv.ds2.n.clases <- sd(ds2.n.clases) / mean(ds2.n.clases)
+cv.ds2.n.clases
+## [1] 0.8563864
+```
+<br/>
+En forma empírica se mostró que si las clases presentan un CV mayor que 0.85 es
+bastante posible que el método de k-medias vaya a introducir alguna distorsión en
+el resultado.<br/>
+
+
+###Coeficiente de Silhouette:
+
+No es la mejor medida, pero es buena, y es de uso muy extendido. También tiene una salida gráfica facil de interpretar.
+
+Sirve para métodos de partición (Kmean, Pam,etc).<br/>
+Se aplica una vez que se tengan los clusters armados.<br/>
+I) Para cada objeto i de un cluster, se calculan las distancias al resto de los objetos de ese cluster, y saco un promedio de esas distancias para cada obj. y lo llamo **Ai**.<br/>
+II) Despues para ese i se calculan el resto de distancias a los otros elementos del sistema, nos quedamos con la menor y lo llamo **bi** <br/><br/>
+<p align="center"><img src="img/sil.svg" alt="Drawing" style="width: 250px;"/></p><br/>
+<p align="center">*Formula Coef. Silhoeuette*</p><br/>
+
+```{r}
+library(cluster)
+dat.r2.kmeans.sil <- silhouette(dat.r2.kmeans$cluster, dat.r2.dist)
+# salida tabulada:
+summary(dat.r2.kmeans.sil)
+```
+*Ejemplo arrojado por la funcion Silhouette*<br/>
+
+```{r}
+summary(dat.r2.kmeans.sil)$clus.avg.widths
+plot(silhouette(dat.r2.kmeans$cluster, dat.r2.dist))
+```
+
+###Calidad de clusters jerárquicos
+
+Sirve para determinar la calidad de los clusters.
+Sobre la diagonal se ubican los clusters, que no deberían tener similitud con los
+otros clusters, que se observarían como zonas de color rosado alejados de la
+diagonal principal.</br>
+A medida que se agrega ruido se puede ver como se va perdiendo la separacion entre los clusters.
+```{r}
+library(lattice)
+levelplot(as.matrix(dat.nrm.dist)[dat.clus$order, dat.clus$order],
+scales=list(y=list(at=c(1),labels=""), x=list(at=c(1),labels="")))
+```
+*Sin ruido*
+```{r}
+levelplot(as.matrix(dat.r1.dist)[dat.r1.clus$order, dat.r1.clus$order],
+scales=list(y=list(at=c(1),labels=""), x=list(at=c(1),labels="")))
+```
+*Con ruido I*
+```{r}
+levelplot(as.matrix(dat.r2.dist)[dat.r2.clus$order, dat.r2.clus$order],
+scales=list(y=list(at=c(1),labels=""), x=list(at=c(1),labels="")))
+```
+*Con ruido II*
+
+####Coeficiente de correlación cofenético<br/>
+
+Otra medida de calidad de los clusters jerárquicos es el cálculo del coeficiente de
+correlación cofenético, que mide la correlación entre la matriz de distancia que dio
+origen al agrupamiento y los distancias extraidas del árbol.<br/><br/>
+```{r}
+cor(dist(dat.nrm), cophenetic(dat.clus))
+cor(dist(dat.r1.nrm), cophenetic(dat.r1.clus))
+```
+
+### Partición de un cluster jerárquico.
+Tecnica ya conocida. 
+Se pueden extraer grupos de un cluster jerárquico estableciendo un punto de corte,
+con esto se puede construir una matriz de confusión muy básica para realizar una
+validación externa de la calidad del cluster: </br>
+
+```{r}
+dat.r.clus.gr <- cutree(dat.r1.clus, h=0.3)
+plot(dat.r1.clus)
+rect.hclust(dat.r1.clus, h=0.3, border="red")
+```
+
+```{r}
+table(dat.r.clus.gr, dat.clase)
+```
